@@ -22,29 +22,16 @@
             object-fit: contain;
             cursor: pointer;
         }
-        #hint {
-            position: fixed;
-            bottom: 12px;
-            color: rgba(255, 255, 255, 0.35);
-            font-family: sans-serif;
-            font-size: 12px;
-            pointer-events: none;
-            transition: opacity 1s;
-        }
     </style>
 </head>
 <body>
     <canvas id="canvas" width="650" height="650"></canvas>
-    <div id="hint">Duraklatmak için dokun • Sıfırlamak için çift dokun</div>
 
     <script>
         const canvas = document.getElementById("canvas");
-        const ctx = canvas.getContext("2d", { alpha: false });
+        const ctx = canvas.getContext("2d");
         const W = canvas.width, H = canvas.height;
 
-        setTimeout(() => { document.getElementById("hint").style.opacity = 0; }, 4500);
-
-        // Deterministik rastgele sayı üreteci (SEED = 5)
         let seed = 5;
         function rand() {
             seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -58,7 +45,6 @@
             return mean + std * Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
         }
         function choice(arr, probs) {
-            if (!probs) return arr[Math.floor(rand() * arr.length)];
             let r = rand(), acc = 0;
             for (let i = 0; i < arr.length; i++) {
                 acc += probs[i];
@@ -93,6 +79,192 @@
         const STAMEN_WILT = [[140, 112, 84], [120, 96, 72]];
 
         const LAYERS = [
-            { n: 8, ac: 0.60, ao: 1.00, kc: -1.20, ko: 0.45, L: 1.00, wc: 0.20, wo: 0.34, d: 750, off: 0.00, pal: [[210, 80, 225], [170, 58, 225], [128, 50, 218], [96, 44, 205], [78, 42, 185]] },
-            { n: 6, ac: 0.48, ao: 0.68, kc: -1.05, ko: 0.15, L: 0.88, wc: 0.19, wo: 0.31, d: 620, off: 0.40, pal: [[255, 150, 235], [245, 92, 218], [205, 62, 218], [150, 52, 222]] },
-            { n: 5, ac: 0.36, ao: 0.46, kc: -0.85, ko
+            { n: 8, ac: 0.60, ao: 1.00, kc: -1.20, ko: 0.45, L: 1.00, wc: 0.20, wo: 0.34, d: 350, off: 0.00, pal: [[210, 80, 225], [170, 58, 225], [128, 50, 218], [96, 44, 205], [78, 42, 185]] },
+            { n: 6, ac: 0.48, ao: 0.68, kc: -1.05, ko: 0.15, L: 0.88, wc: 0.19, wo: 0.31, d: 280, off: 0.40, pal: [[255, 150, 235], [245, 92, 218], [205, 62, 218], [150, 52, 222]] },
+            { n: 5, ac: 0.36, ao: 0.46, kc: -0.85, ko: -0.05, L: 0.72, wc: 0.17, wo: 0.27, d: 220, off: 0.20, pal: [[255, 205, 245], [255, 135, 232], [238, 84, 216], [195, 62, 226]] },
+            { n: 4, ac: 0.22, ao: 0.32, kc: -0.50, ko: -0.10, L: 0.46, wc: 0.14, wo: 0.22, d: 150, off: 0.55, pal: [[255, 238, 252], [255, 185, 242], [255, 125, 228]] }
+        ];
+        const LEAF_DEFS = [
+            [0.10, +1, 1.00, 0.55, -0.80],
+            [0.16, -1, 0.90, 0.50, -0.85],
+            [0.40, +1, 0.70, 0.95, -0.70],
+            [0.33, -1, 0.62, 0.90, -0.65],
+        ];
+
+        const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+        function smoothstep(x, a, b) {
+            const t = clamp((x - a) / (b - a), 0, 1);
+            return t * t * (3 - 2 * t);
+        }
+        function sinc(x) { return Math.abs(x) < 1e-8 ? 1.0 : Math.sin(x) / x; }
+        function profile(u) { return Math.pow(Math.sin(Math.PI * Math.pow(clamp(u, 0, 1), 0.75)), 0.85); }
+
+        function palettePick(pal, g, spread = 0.55, jitter = 0.07) {
+            const x = clamp(g, 0, 1) * (pal.length - 1) + randn(0, spread);
+            const idx = clamp(Math.round(x), 0, pal.length - 1);
+            const j = 1 + randn(0, jitter);
+            return [pal[idx][0] * j, pal[idx][1] * j, pal[idx][2] * j];
+        }
+        function areaU() {
+            while (true) {
+                const u = rand();
+                if (rand() < profile(u)) return u;
+            }
+        }
+        function sampleV(rim = 0.14) {
+            let v = uniform(-1, 1);
+            if (rand() < rim) v = Math.sign(v) * uniform(0.88, 1.0);
+            return v;
+        }
+
+        function getState(t) {
+            t = clamp(t, 0, T_END);
+            let i = 0;
+            while (i < KEYS.length - 2 && KEYS[i + 1][0] <= t) i++;
+            const u = (t - KEYS[i][0]) / (KEYS[i + 1][0] - KEYS[i][0]);
+            const p0 = KEYS[Math.max(i - 1, 0)];
+            const p1 = KEYS[i];
+            const p2 = KEYS[i + 1];
+            const p3 = KEYS[Math.min(i + 2, KEYS.length - 1)];
+            const res = [];
+            for (let k = 1; k <= 6; k++) {
+                const v = 0.5 * (2 * p1[k] + (p2[k] - p0[k]) * u + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * u * u + (3 * p1[k] - p0[k] - 3 * p2[k] + p3[k]) * u * u * u);
+                res.push(clamp(v, 0, 1));
+            }
+            return res;
+        }
+
+        function bez(P, s) {
+            const [P0, P1, P2, P3] = P;
+            const q = 1 - s;
+            const x = q*q*q*P0[0] + 3*q*q*s*P1[0] + 3*q*s*s*P2[0] + s*s*s*P3[0];
+            const y = q*q*q*P0[1] + 3*q*q*s*P1[1] + 3*q*s*s*P2[1] + s*s*s*P3[1];
+            const dx = 3*q*q*(P1[0]-P0[0]) + 6*q*s*(P2[0]-P1[0]) + 3*s*s*(P3[0]-P2[0]);
+            const dy = 3*q*q*(P1[1]-P0[1]) + 6*q*s*(P2[1]-P1[1]) + 3*s*s*(P3[1]-P2[1]);
+            return [x, y, dx, dy];
+        }
+
+        const cx = W / 2, y0 = H * 0.80, Ls = H * 0.38, Lf = H * 0.235;
+        function surface(x) {
+            return y0 - 0.022 * H * Math.exp(-Math.pow((x - cx) / (0.2 * W), 2))
+                      - 0.003 * H * Math.sin(x * 0.045) - 0.002 * H * Math.sin(x * 0.13 + 1.3);
+        }
+
+        function drawDot(x, y, r, g, b, rad) {
+            ctx.fillStyle = `rgb(${clamp(r|0,0,255)},${clamp(g|0,0,255)},${clamp(b|0,0,255)})`;
+            ctx.beginPath();
+            ctx.arc(x, y, rad, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Önceden hesaplanan veriler
+        const stemPts = Array.from({ length: 1200 }, () => {
+            const s = rand();
+            let lat = uniform(-1, 1);
+            if (rand() < 0.18) lat = Math.sign(lat) * uniform(0.85, 1.0);
+            let live = palettePick(STEM_PAL.slice(0, 3), s * 0.8 + rand() * 0.2);
+            return { s, lat, live, wilt: palettePick(STEM_WILT, rand(), 0.8), rn: rand(), rad: choice([1.0, 1.5], [0.5, 0.5]) };
+        });
+
+        const headPts = [];
+        for (const Ly of LAYERS) {
+            for (let i = 0; i < Ly.n; i++) {
+                const th = 2 * Math.PI * i / Ly.n + Ly.off + randn(0, 0.10);
+                const aj = randn(0, 0.06), lj = uniform(0.92, 1.08), pj = rand(), wj = uniform(-0.5, 0.5);
+                for (let k = 0; k < Ly.d; k++) {
+                    const u = areaU(), v = sampleV();
+                    let col = palettePick(Ly.pal, u + randn(0, 0.10));
+                    headPts.push({ th, aj, pj, wj, u, v, sp: profile(u), ac: Ly.ac, ao: Ly.ao, kc: Ly.kc, ko: Ly.ko, L: Ly.L * lj, wc: Ly.wc, wo: Ly.wo, live: col, wilt: palettePick(WILT_PAL, 0.4 * u + 0.6 * rand(), 0.7), rn: rand(), rad: 1.2 });
+                }
+            }
+        }
+
+        const leafPts = [];
+        for (let j = 0; j < LEAF_DEFS.length; j++) {
+            for (let k = 0; k < 250; k++) {
+                const u = areaU();
+                leafPts.push({ lid: j, u, v: sampleV(0.10), live: palettePick(LEAF_PAL, u + randn(0, 0.1)), wilt: palettePick(LEAF_WILT, rand(), 0.8), rn: rand(), rad: 1.2 });
+            }
+        }
+
+        function render(t) {
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(0, 0, W, H);
+
+            const [stem, size, bloom, wilt, leaf, glow] = getState(t);
+            const L = Ls * stem;
+            const sway = 0.012 * H * Math.sin(t * 0.9) * stem * (1 - 0.6 * wilt);
+            const P = [
+                [cx, y0 + 4.0],
+                [cx - 0.06 * L * (1 - wilt) + 0.02 * L * wilt, y0 - 0.33 * L],
+                [cx + 0.05 * L * (1 - wilt) + 0.08 * L * wilt + sway * 0.5, y0 - L * (0.74 + 0.30 * wilt)],
+                [cx + sway + 0.32 * L * wilt, y0 - L * (1 - 0.15 * wilt)]
+            ];
+            const [hx, hy] = P[3];
+
+            // Gövde Çizimi
+            if (stem > 0.01) {
+                for (let i = 0; i < stemPts.length; i++) {
+                    const p = stemPts[i];
+                    const [x, y, dx, dy] = bez(P, p.s);
+                    const nn = Math.hypot(dx, dy) + 1e-6;
+                    const wst = 0.0085 * H * (1 - 0.3 * p.s) * (1 - 0.25 * wilt);
+                    const lat = p.lat * wst;
+                    const wi = clamp(wilt * (0.75 + 0.5 * p.s), 0, 1);
+                    drawDot(x - dy / nn * lat, y + dx / nn * lat, p.live[0], p.live[1], p.live[2], p.rad);
+                }
+            }
+
+            // Yaprak Çizimi
+            if (leaf > 0.02 && stem > 0.05) {
+                const anchors = LEAF_DEFS.map(d => bez(P, d[0]));
+                for (let i = 0; i < leafPts.length; i++) {
+                    const p = leafPts[i];
+                    const def = LEAF_DEFS[p.lid];
+                    const [ax, ay] = anchors[p.lid];
+                    const LL = 0.19 * H * def[2] * leaf;
+                    const am = def[3] + def[4] * p.u * 0.5;
+                    drawDot(ax + LL * p.u * def[1] * Math.cos(am), ay - LL * p.u * Math.sin(am), p.live[0], p.live[1], p.live[2], p.rad);
+                }
+            }
+
+            // Çiçek Başı Çizimi
+            if (stem > 0.01 && size > 0.05) {
+                const phi = wilt * 2.75;
+                const tau = 0.20 + 0.36 * bloom - 0.40 * wilt;
+                const cphi = Math.cos(phi), sphi = Math.sin(phi), ct = Math.cos(tau), st_ = Math.sin(tau);
+                const Ls_ = Lf * size;
+
+                for (let i = 0; i < headPts.length; i++) {
+                    const g = headPts[i];
+                    let A0 = g.ac + (g.ao - g.ac) * bloom + g.aj;
+                    const K = g.kc + (g.ko - g.kc) * bloom;
+                    const Lp = Ls_ * g.L;
+                    const am = A0 + K * g.u * 0.5;
+                    const sc = sinc(K * g.u * 0.5);
+                    let rr = Lp * g.u * Math.sin(am) * sc;
+                    const hh = Lp * g.u * Math.cos(am) * sc;
+                    const cth = Math.cos(g.th), sth = Math.sin(g.th);
+                    
+                    const xl = cth * rr, yl = hh, zl = sth * rr;
+                    const yp = yl * ct - zl * st_;
+                    const X = hx + xl * cphi + yp * sphi;
+                    const Y = hy - (-xl * sphi + yp * cphi);
+
+                    drawDot(X, Y, g.live[0], g.live[1], g.live[2], 1.2);
+                }
+            }
+        }
+
+        let clock = 0, last = performance.now();
+        function loop(now) {
+            clock += (now - last) / 1000;
+            if (clock > T_END) clock = 0; // Döngüye sok
+            last = now;
+            render(clock);
+            requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
