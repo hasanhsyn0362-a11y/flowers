@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pointillism Flower</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+        canvas {
+            max-width: 100vw;
+            max-height: 100vh;
+            object-fit: contain;
+            cursor: pointer;
+        }
+        #hint {
+            position: fixed;
+            bottom: 12px;
+            color: rgba(255, 255, 255, 0.35);
+            font-family: sans-serif;
+            font-size: 12px;
+            pointer-events: none;
+            transition: opacity 1s;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="650" height="650"></canvas>
+    <div id="hint">Duraklatmak için dokun • Sıfırlamak için çift dokun</div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        const W = canvas.width, H = canvas.height;
+
+        setTimeout(() => { document.getElementById("hint").style.opacity = 0; }, 4500);
+
+        // Deterministik rastgele sayı üreteci (SEED = 5)
+        let seed = 5;
+        function rand() {
+            seed = (seed * 1664525 + 1013904223) >>> 0;
+            return seed / 4294967296;
+        }
+        function uniform(min, max) { return min + (max - min) * rand(); }
+        function randn(mean = 0, std = 1) {
+            let u = 0, v = 0;
+            while (u === 0) u = rand();
+            while (v === 0) v = rand();
+            return mean + std * Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+        }
+        function choice(arr, probs) {
+            if (!probs) return arr[Math.floor(rand() * arr.length)];
+            let r = rand(), acc = 0;
+            for (let i = 0; i < arr.length; i++) {
+                acc += probs[i];
+                if (r <= acc) return arr[i];
+            }
+            return arr[arr.length - 1];
+        }
+
+        const KEYS = [
+            [0.0, 0.00, 0.00, 0.00, 0.0, 0.00, 0.00],
+            [5.0, 0.42, 0.22, 0.00, 0.0, 0.25, 0.00],
+            [10.0, 0.62, 0.42, 0.00, 0.0, 0.50, 0.35],
+            [16.0, 0.80, 0.68, 0.50, 0.0, 0.72, 0.55],
+            [24.0, 1.00, 1.00, 1.00, 0.0, 1.00, 1.00],
+            [30.0, 1.00, 1.00, 1.00, 0.0, 1.00, 1.00],
+            [39.0, 0.98, 0.85, 0.55, 1.0, 0.92, 0.00],
+            [45.0, 0.98, 0.85, 0.55, 1.0, 0.90, 0.00],
+        ];
+        const T_END = 45.0;
+
+        const SOIL_PAL = [[34, 25, 20], [50, 36, 28], [68, 50, 37], [88, 65, 47], [108, 82, 60], [64, 58, 52]];
+        const STEM_PAL = [[62, 38, 120], [100, 58, 165], [140, 84, 200], [60, 160, 140]];
+        const STEM_WILT = [[120, 88, 66], [96, 66, 52], [140, 108, 76]];
+        const LEAF_PAL = [[60, 150, 140], [80, 120, 175], [130, 80, 195], [175, 105, 215]];
+        const LEAF_WILT = [[130, 100, 70], [104, 76, 58], [146, 116, 84]];
+        const RIB_PAL = [[210, 180, 255], [170, 230, 220]];
+        const WILT_PAL = [[150, 86, 128], [116, 64, 108], [88, 52, 88], [126, 94, 104], [104, 72, 56]];
+        const RIM_PAL = [[205, 165, 255], [255, 190, 250], [170, 140, 255]];
+        const HI_PAL = [[235, 215, 255], [255, 225, 250]];
+        const GOLD_PAL = [[255, 214, 110], [255, 238, 170], [255, 184, 90]];
+        const STAMEN_PAL = [[255, 240, 255], [255, 215, 235], [255, 230, 150], [255, 190, 80]];
+        const STAMEN_WILT = [[140, 112, 84], [120, 96, 72]];
+
+        const LAYERS = [
+            { n: 8, ac: 0.60, ao: 1.00, kc: -1.20, ko: 0.45, L: 1.00, wc: 0.20, wo: 0.34, d: 750, off: 0.00, pal: [[210, 80, 225], [170, 58, 225], [128, 50, 218], [96, 44, 205], [78, 42, 185]] },
+            { n: 6, ac: 0.48, ao: 0.68, kc: -1.05, ko: 0.15, L: 0.88, wc: 0.19, wo: 0.31, d: 620, off: 0.40, pal: [[255, 150, 235], [245, 92, 218], [205, 62, 218], [150, 52, 222]] },
+            { n: 5, ac: 0.36, ao: 0.46, kc: -0.85, ko
